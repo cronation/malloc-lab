@@ -350,7 +350,7 @@ void *find_micro_header(void *p) {
     micro_h_p = read_next(micro_h_p);
 
     while (micro_h_p != h_root_p) { // 모든 micro cell을 탐색
-        if ( (micro_h_p < p) && (p < micro_h_p + MCELL_SIZE) ) {
+        if ( (micro_h_p < p) && (p < micro_h_p + read_header_size(micro_h_p) - HDR_SIZE) ) {
             return micro_h_p;
         }
         micro_h_p = read_next(micro_h_p);
@@ -366,7 +366,7 @@ void *micro_assign_cell(void *p) {
             *GET_MCELL_LIST(p) = ( *GET_MCELL_LIST(p) | ( ((unsigned long long) 1) << idx) ); // list 업데이트
             if (*GET_MCELL_LIST(p) == FULL_CELL_LIST) {
                 // 모든 cell이 가득 참: 헤더 업데이트
-                tag_header(p, MCELL_SIZE, 0, 1);
+                tag_header(p, read_header_size(p), 0, 1);
             }
 
             return GET_CELL_P(p, idx);
@@ -407,18 +407,18 @@ void *micro_malloc() {
     if (micro_h_p != NULL) {
         // 탐색 성공
         remove_node(micro_h_p); // free list에서 삭제
+        tag_header(micro_h_p, read_header_size(micro_h_p), 0, 0); // 헤더 업데이트
     } else {
-        // 탐색 2차 실패: sbrk 호출
+        // 탐색 2차 실패: sbrk 호출 및 micro cell 블록 생성
         micro_h_p = h_end_p;
         mem_sbrk(MCELL_SIZE);
+        tag_header(micro_h_p, MCELL_SIZE, 0, 0); // 헤더 업데이트
         h_end_p += MCELL_SIZE;
     }
 
-    // micro cell 블록 생성
-    tag_header(micro_h_p, MCELL_SIZE, 0, 0); // 헤더 업데이트
     insert_node(micro_h_p); // free list에 삽입
 
-    *GET_MCELL_LIST(micro_h_p) = (unsigned long long) 1; // cell list에서 0번 cell을 체크
+    *GET_MCELL_LIST(micro_h_p) = (unsigned long long) 1; // cell list에서 0번 cell을 배정
     // 0번 cell의 주소 반환
     return GET_CELL_P(micro_h_p, 0);
 }
@@ -427,14 +427,14 @@ void *micro_malloc() {
 void micro_free(void *p, void *cell_p) {
     // list에서 idx를 삭제
     *GET_MCELL_LIST(p) = *GET_MCELL_LIST(p) & ~( ((unsigned long long) 1) << get_cell_idx(p, cell_p));
-    tag_header(p, MCELL_SIZE, 0, 0); // is_allocated를 0으로 업데이트
+    tag_header(p, read_header_size(p), 0, 0); // is_allocated를 0으로 업데이트
 
     if (*GET_MCELL_LIST(p) == 0) {
         // 만약 모든 cell이 비었다면 micro cell 블록을 free
         remove_node(p); // free list에서 삭제
 
         // micro cell 블록의 크기에 해당하는 bucket에 free 블록으로 삽입
-        tag_header(p, MCELL_SIZE, get_bucket_idx(MCELL_SIZE), 0);
+        tag_header(p, read_header_size(p), get_bucket_idx(read_header_size(p)), 0);
         insert_node(p);
     }
 }
